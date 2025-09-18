@@ -25,6 +25,7 @@ import org.salesync.record_service.dtos.RecordDto;
 import org.salesync.record_service.dtos.RecordTypePropertyDto;
 import org.salesync.record_service.dtos.RequestRecordDto;
 import org.salesync.record_service.dtos.RequestUpdateStageDto;
+import org.salesync.record_service.dtos.StageDto;
 import org.salesync.record_service.dtos.TypeDto;
 import org.salesync.record_service.dtos.record_type_relation_dto.ListRecordTypeRelationsDto;
 import org.salesync.record_service.dtos.record_type_relation_dto.RecordTypeRelationDto;
@@ -45,6 +46,7 @@ import org.salesync.record_service.repositories.RecordRepository;
 import org.salesync.record_service.repositories.RecordStageRepository;
 import org.salesync.record_service.repositories.RecordTypePropertyRepository;
 import org.salesync.record_service.repositories.RecordTypeRelationRepository;
+import org.salesync.record_service.services.message.MessageService;
 import org.salesync.record_service.services.token.TokenService;
 import org.salesync.record_service.utils.SecurityContextHelper;
 import org.springframework.beans.factory.annotation.Value;
@@ -79,7 +81,10 @@ public class RecordServiceImpl implements RecordService {
     private final RestTemplate restTemplate;
     private final RabbitMQProducer rabbitMQProducer;
     private final TokenService tokenService;
+    private final MessageService messageService;
     private final RestTemplateBuilder restTemplateBuilder;
+    private final String SLACK_CONFIG_RECORD_NAME = "Slack Setting";
+    private final String SLACK_CONFIG_RECORD_PROPERTY = "Json Config";
 
     @Value("${elasticsearch.url}")
     private String elasticsearchUrl;
@@ -268,7 +273,6 @@ public class RecordServiceImpl implements RecordService {
 
     @Override
     public RecordDto updateStage(RequestUpdateStageDto requestUpdateStageDto, String token, String realm) {
-
         /* TODO: validate stageId */
         Record record = recordRepository.findById(requestUpdateStageDto.getRecordId()).orElseThrow(
                 () -> new ObjectNotFoundException(
@@ -277,13 +281,23 @@ public class RecordServiceImpl implements RecordService {
         );
         validateRecordBelongsToCompany(record, realm);
         RecordStage recordStage = record.getRecordStage();
+        UUID oldStageId = recordStage.getStageId();
         recordStage.setStageId(requestUpdateStageDto.getStageId());
         record.setRecordStage(recordStage);
 
         String userId = tokenService.extractClaim(token.split(" ")[1], claims -> claims.get("userId", String.class));
         rabbitMQProducer.sendMessage("record", MessageDto.builder().content("${" + userId + "} Updated " + record.getName() + " stage").title("Stage Updated").createdAt(new Date()).action("update").isRead(false).url("/" + realm + "/record/" + record.getId()).senderId(UUID.fromString(userId)).receiverId(record.getUserId()).build());
-
-        return recordMapper.recordToRecordDto(recordRepository.save(record));
+        RecordDto result = recordMapper.recordToRecordDto(recordRepository.save(record));
+        if (result != null) {
+            try {
+                if (oldStageId != requestUpdateStageDto.getStageId()) {  
+                    handleSlackMessage(userId, record, token);
+                }
+            } catch(Exception e) {
+                System.out.println(e.getMessage());
+            }
+        }
+        return result;
     }
 
     @Override
@@ -322,6 +336,10 @@ public class RecordServiceImpl implements RecordService {
         );
         validateRecordBelongsToCompany(recordEntity, companyName);
         recordEntity.setName(updateRecordRequestDto.getName());
+        UUID oldStageId = null;
+        if (recordEntity.getRecordStage() != null) {
+            oldStageId = recordEntity.getRecordStage().getStageId();
+        }
 
         if (updateRecordRequestDto.getCurrentStageId() != null) {
             RecordStage recordStage = recordStageRepository.findByRecordId(recordEntity.getId());
@@ -344,8 +362,18 @@ public class RecordServiceImpl implements RecordService {
 
         String userId = tokenService.extractClaim(token.split(" ")[1], claims -> claims.get("userId", String.class));
         rabbitMQProducer.sendMessage("record", MessageDto.builder().content("${" + userId + "} Updated " + recordEntity.getName()).title("Record Updated").createdAt(new Date()).action("update").isRead(false).url("/record/" + recordEntity.getId()).senderId(UUID.fromString(userId)).receiverId(recordEntity.getUserId()).build());
-
-        return recordMapper.recordToRecordDto(recordRepository.save(recordEntity));
+        Record record = recordRepository.save(recordEntity);
+        RecordDto result = recordMapper.recordToRecordDto(record);
+        if (result != null) {
+            try {
+                if (oldStageId != updateRecordRequestDto.getCurrentStageId()) {
+                    handleSlackMessage(userId, record, token);
+                }
+            } catch(Exception e) {
+                System.out.println(e.getMessage());
+            }
+        }
+        return result;
     }
 
     @Override
@@ -410,5 +438,83 @@ public class RecordServiceImpl implements RecordService {
         if (!companyName.equals(record.getCompanyName())) {
             throw new ObjectNotFoundException(notFoundKey, notFoundValue);
         }
+    }
+
+    // Customization for tenant-b
+    private boolean shoulSendMessage(UUID oldStageId, UUID newStageId) {
+        if (oldStageId == newStageId) {
+            return false;
+        } else {
+            return false;
+        }
+    }
+
+    private String getStageName(UUID typeId, UUID stageId, HttpEntity<String> entity, String realm) {
+        String url = typeServiceUrl + realm + "/stages/" + typeId;
+        ResponseEntity<List<StageDto>> response = restTemplate.exchange(url, HttpMethod.GET, entity, new ParameterizedTypeReference<>() {});
+        List<StageDto> stages = response.getBody();
+        if (stages != null) {
+            for (StageDto stage : stages) {
+                if (stage.getId().toString().equals(stageId.toString())) {
+                    return stage.getName();
+                }
+            }
+        }
+        return null;
+    }
+
+    private String getTypeName(UUID typeId, HttpEntity<String> entity, String realm) {
+        String url = typeServiceUrl + realm + "/types/" + typeId;
+        ResponseEntity<TypeDto> response = restTemplate.exchange(url, HttpMethod.GET, entity, new ParameterizedTypeReference<>() {});
+        TypeDto typeDto = response.getBody();
+        if (typeDto == null) {
+            return null;
+        } else {
+            return typeDto.getName();
+        }
+    }
+
+    private void handleSlackMessage(String userId, Record record, String token) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", token);
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+        String typeName = getTypeName(record.getRecordType().getTypeId(), entity, record.getCompanyName());
+        if (typeName != null && !typeName.isBlank()) {
+            String stageName = getStageName(record.getRecordType().getTypeId(), record.getRecordStage().getStageId(), entity, record.getCompanyName());
+            if (typeName == null || typeName.isBlank()) {
+                return;
+            }
+            Map<String, String> config = getConfig(record.getCompanyName());
+            if (config == null) {
+                return;
+            }
+            String messageTemplate = config.get(typeName + ":" + stageName);
+            if (messageTemplate == null || messageTemplate.isBlank()) {
+                return;
+            }
+            messageService.sendMessage(userId, record, messageTemplate);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, String> getConfig(String companyName) {
+        try {
+            Optional<Record> optionalRecord = recordRepository.findFirstByCompanyNameAndName(companyName, SLACK_CONFIG_RECORD_NAME);
+            if (!optionalRecord.isPresent()) {
+                return null;
+            }
+            Record record = optionalRecord.get();
+            Optional<RecordTypeProperty> optionalProperty = record.getRecordProperties().stream().filter(property -> SLACK_CONFIG_RECORD_PROPERTY.equals(property.getPropertyName())).findFirst();
+            if (!optionalProperty.isPresent()) {
+                return null;
+            }
+            String jsonString = optionalProperty.get().getItemValue();
+            ObjectMapper objectMapper = new ObjectMapper();
+            return objectMapper.readValue(jsonString, Map.class);
+        } catch(Exception e) {
+            System.out.println(e.getMessage());
+        }
+        return null;
     }
 }

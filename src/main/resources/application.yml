@@ -32,3 +32,9 @@ elasticsearch:
 
 typeservice:
   url: ${TYPE_SERVICE_ENDPOINT}
+
+userinfo:
+  url: ${USER_INFO_URL}
+
+slack:
+  webhook_url: ${SLACK_WEBHOOK_URL}

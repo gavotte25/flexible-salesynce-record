@@ -52,7 +52,7 @@ public class RecordServiceTest {
         RestTemplateBuilder restTemplateBuilder = Mockito.mock(RestTemplateBuilder.class);
         securityContextHelperMockedStatic = Mockito.mockStatic(SecurityContextHelper.class);
         recordService = new RecordServiceImpl(
-                recordRepository, recordTypePropertyRepository, recordTypeRelationRepository, recordStageRepository, restTemplate, rabbitMQProducer, tokenService, restTemplateBuilder
+                recordRepository, recordTypePropertyRepository, recordTypeRelationRepository, recordStageRepository, restTemplate, rabbitMQProducer, tokenService, null, restTemplateBuilder
         );
     }
 

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface RecordRepository extends JpaRepository<Record, UUID> {
@@ -29,4 +30,5 @@ public interface RecordRepository extends JpaRepository<Record, UUID> {
     Page<Record> getOwnFilteredRecordsAndOrderByName(UUID userId, UUID typeId, String searchTerm, boolean isAsc, Pageable pageable, String companyName);
 
     List<Record> findAllByCompanyName(String companyName);
+    Optional<Record> findFirstByCompanyNameAndName(String companyName, String recordName);
 }
