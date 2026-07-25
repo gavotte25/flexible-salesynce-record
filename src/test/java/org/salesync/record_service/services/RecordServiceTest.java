@@ -109,11 +109,14 @@ public class RecordServiceTest {
         UUID sourceRecordId = UUID.randomUUID();
         UUID destinationRecordId = UUID.randomUUID();
         UUID typeRelationId = UUID.randomUUID();
+        String companyName = "companyName";
         Record sourceRecord = createRecord(userId, "sourceRecord");
         Record destinationRecord = createRecord(userId, "destinationRecord");
 
         sourceRecord.setId(sourceRecordId);
         destinationRecord.setId(destinationRecordId);
+        sourceRecord.setCompanyName(companyName);
+        destinationRecord.setCompanyName(companyName);
 
         RequestRecordTypeRelationDto requestRecordTypeRelationDto = RequestRecordTypeRelationDto.builder().sourceRecordId(sourceRecordId).destinationRecordId(destinationRecordId).typeRelationId(typeRelationId).build();
 
@@ -145,7 +148,7 @@ public class RecordServiceTest {
                 inverseRelation
         );
         // When
-        RecordTypeRelationDto result = recordService.createRecordTypeRelation(requestRecordTypeRelationDto);
+        RecordTypeRelationDto result = recordService.createRecordTypeRelation(requestRecordTypeRelationDto, companyName);
         // Then
         Assert.assertNotNull(result);
         Assert.assertEquals(requestRecordTypeRelationDto.getTypeRelationId(), result.getTypeRelationId());

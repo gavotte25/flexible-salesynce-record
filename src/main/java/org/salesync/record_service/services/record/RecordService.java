@@ -20,13 +20,13 @@ public interface RecordService {
 
     RecordDto createRecordByType(String realm, RequestRecordDto requestRecordDto);
 
-    RecordDto getRecordById(String recordId);
+    RecordDto getRecordById(String recordId, String companyName);
 
-    RecordTypeRelationDto createRecordTypeRelation(RequestRecordTypeRelationDto requestRecordTypeRelationDto);
+    RecordTypeRelationDto createRecordTypeRelation(RequestRecordTypeRelationDto requestRecordTypeRelationDto, String companyName);
 
-    RecordTypePropertyDto updateRecordProperty(RecordTypePropertyDto recordTypePropertyDto);
+    RecordTypePropertyDto updateRecordProperty(RecordTypePropertyDto recordTypePropertyDto, String companyName);
 
-    void deleteRecordsById(List<UUID> recordIds);
+    void deleteRecordsById(List<UUID> recordIds, String companyName);
 
     ListRecordTypeRelationsDto getListRecordTypeRelationsById(UUID sourceRecordId, String token, String realm);
 
@@ -34,9 +34,9 @@ public interface RecordService {
 
     RecordDto createRecordByTypeId(String companyName, String typeId, String token, CreateRecordRequestDto createRecordRequestDto);
 
-    RecordDto updateRecordByRecordId(String recordId, String token, RecordDto updateRecordRequestDto);
+    RecordDto updateRecordByRecordId(String recordId, String token, RecordDto updateRecordRequestDto, String companyName);
 
     List<RecordDto> createListRecord(String realm, String token, List<CreateRecordRequestDto> createRecordRequestDtos);
 
-    Object getRecordInElasticsearch(HttpServletRequest request) throws IOException;
+    Object getRecordInElasticsearch(HttpServletRequest request, String companyName) throws IOException;
 }

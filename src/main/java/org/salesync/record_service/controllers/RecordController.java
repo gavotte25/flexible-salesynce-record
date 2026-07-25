@@ -44,8 +44,8 @@ public class RecordController {
     }
 
     @GetMapping(Route.RECORD_ID)
-    public RecordDto getRecordById(@PathVariable String recordId) {
-        return recordService.getRecordById(recordId);
+    public RecordDto getRecordById(@PathVariable String recordId, @PathVariable String realm) {
+        return recordService.getRecordById(recordId, realm);
     }
 
     @GetMapping
@@ -65,8 +65,8 @@ public class RecordController {
 
     @PostMapping(Route.RECORD_TYPE_RELATION)
     public RecordTypeRelationDto createRecordTypeRelation(
-                                                          @RequestBody RequestRecordTypeRelationDto requestRecordTypeRelationDto) {
-        return recordService.createRecordTypeRelation(requestRecordTypeRelationDto);
+                                                          @RequestBody RequestRecordTypeRelationDto requestRecordTypeRelationDto, @PathVariable String realm) {
+        return recordService.createRecordTypeRelation(requestRecordTypeRelationDto, realm);
     }
 
     @GetMapping(Route.LIST_RECORD_TYPE_RELATION)
@@ -76,13 +76,13 @@ public class RecordController {
 
     @PutMapping(Route.PROPERTY)
     public ResponseEntity<RecordTypePropertyDto> updateRecordProperty(
-                                                                      @RequestBody RecordTypePropertyDto recordTypePropertyDto) {
-        return ResponseEntity.ok(recordService.updateRecordProperty(recordTypePropertyDto));
+                                                                      @RequestBody RecordTypePropertyDto recordTypePropertyDto, @PathVariable String realm) {
+        return ResponseEntity.ok(recordService.updateRecordProperty(recordTypePropertyDto, realm));
     }
 
     @DeleteMapping
-    public ResponseEntity<String> deleteRecordsById(@RequestBody List<UUID> recordIds) {
-        recordService.deleteRecordsById(recordIds);
+    public ResponseEntity<String> deleteRecordsById(@RequestBody List<UUID> recordIds, @PathVariable String realm) {
+        recordService.deleteRecordsById(recordIds, realm);
         return ResponseEntity.noContent().build();
     }
 
@@ -98,12 +98,12 @@ public class RecordController {
     }
 
     @PutMapping(Route.RECORD_ID + Route.UPDATE)
-    public ResponseEntity<RecordDto> updateRecordByRecordId(@PathVariable String recordId, @RequestHeader(name = "Authorization") String authorization, @RequestBody RecordDto updateRecordRequestDto) {
-        return ResponseEntity.ok(recordService.updateRecordByRecordId(recordId, authorization, updateRecordRequestDto));
+    public ResponseEntity<RecordDto> updateRecordByRecordId(@PathVariable String recordId, @RequestHeader(name = "Authorization") String authorization, @RequestBody RecordDto updateRecordRequestDto, @PathVariable String realm) {
+        return ResponseEntity.ok(recordService.updateRecordByRecordId(recordId, authorization, updateRecordRequestDto, realm));
     }
 
     @PostMapping(Route.ELASTICSEARCH)
-    public ResponseEntity<Object> getRecordInElasticsearch(HttpServletRequest request) throws IOException {
-        return ResponseEntity.ok(recordService.getRecordInElasticsearch(request));
+    public ResponseEntity<Object> getRecordInElasticsearch(HttpServletRequest request, @PathVariable String realm) throws IOException {
+        return ResponseEntity.ok(recordService.getRecordInElasticsearch(request, realm));
     }
 }

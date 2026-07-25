@@ -141,18 +141,23 @@ public class RecordServiceImpl implements RecordService {
     }
 
     @Override
-    public RecordDto getRecordById(String recordId) {
-        return recordMapper.recordToRecordDto(recordRepository.findById(UUID.fromString(recordId)).orElse(null));
+    public RecordDto getRecordById(String recordId, String companyName) {
+        Record record = recordRepository.findById(UUID.fromString(recordId)).orElse(null);
+        if (record != null) {
+            validateRecordBelongsToCompany(record, companyName);
+        }
+        return recordMapper.recordToRecordDto(record);
     }
 
     @Override
-    public RecordTypeRelationDto createRecordTypeRelation(RequestRecordTypeRelationDto requestRecordTypeRelationDto) {
+    public RecordTypeRelationDto createRecordTypeRelation(RequestRecordTypeRelationDto requestRecordTypeRelationDto, String companyName) {
         UUID sourceRecordId = requestRecordTypeRelationDto.getSourceRecordId();
         Record sourceRecord = recordRepository.findById(sourceRecordId).orElseThrow(
                 () -> new ObjectNotFoundException(
                         "Source type", sourceRecordId.toString()
                 )
         );
+        validateRecordBelongsToCompany(sourceRecord, companyName);
 
         UUID destinationRecordId = requestRecordTypeRelationDto.getDestinationRecordId();
         Record destinationRecord = recordRepository.findById(destinationRecordId).orElseThrow(
@@ -160,6 +165,7 @@ public class RecordServiceImpl implements RecordService {
                         "Destination type", destinationRecordId.toString()
                 )
         );
+        validateRecordBelongsToCompany(destinationRecord, companyName);
 
         RecordTypeRelation recordTypeRelation = RecordTypeRelation.builder().typeRelationId(requestRecordTypeRelationDto.getTypeRelationId()).sourceRecord(sourceRecord).destinationRecord(destinationRecord).build();
 
@@ -173,23 +179,25 @@ public class RecordServiceImpl implements RecordService {
     }
 
     @Override
-    public RecordTypePropertyDto updateRecordProperty(RecordTypePropertyDto recordTypePropertyDto) {
+    public RecordTypePropertyDto updateRecordProperty(RecordTypePropertyDto recordTypePropertyDto, String companyName) {
         RecordTypeProperty recordTypeProperty = recordTypePropertyRepository.findById(recordTypePropertyDto.getId()).orElseThrow(
                 () -> new ObjectNotFoundException(
                         "Record type property", recordTypePropertyDto.getId().toString()
                 )
         );
+        validateRecordBelongsToCompany(recordTypeProperty.getRecord(), companyName);
         recordTypeProperty.setItemValue(recordTypePropertyDto.getItemValue());
         return recordTypePropertyMapper.entityToDto(recordTypePropertyRepository.save(recordTypeProperty));
     }
 
     @Override
-    public void deleteRecordsById(List<UUID> recordIds) {
+    public void deleteRecordsById(List<UUID> recordIds, String companyName) {
         String userContextId = SecurityContextHelper.getContextUserId();
         recordIds.forEach(recordId -> {
             Record record = recordRepository.findById(recordId).orElseThrow(
                     () -> new ConcurrentUpdateException(Message.CONCURRENT_UPDATE)
             );
+            validateRecordBelongsToCompany(record, companyName);
             if (!userContextId.equals(record.getUserId().toString())) {
                 throw new AccessDeniedException("You are not allowed to delete this record");
             }
@@ -213,13 +221,15 @@ public class RecordServiceImpl implements RecordService {
         if (listRecordTypeRelations.isEmpty()) {
 
             sourceRecord = recordRepository.findById(sourceRecordId).orElse(null);
-            sourceRecordDto = recordMapper.recordToRecordDto(sourceRecord);
-            if (sourceRecordDto == null) {
+            if (sourceRecord == null) {
                 throw new ObjectNotFoundException("Record type relations", sourceRecordId.toString());
             }
+            validateRecordBelongsToCompany(sourceRecord, realm, "Record type relations", sourceRecordId.toString());
+            sourceRecordDto = recordMapper.recordToRecordDto(sourceRecord);
         } else {
-            sourceRecordDto = recordMapper.recordToRecordDto(listRecordTypeRelations.get(0).getSourceRecord());
             sourceRecord = listRecordTypeRelations.get(0).getSourceRecord();
+            validateRecordBelongsToCompany(sourceRecord, realm, "Record type relations", sourceRecordId.toString());
+            sourceRecordDto = recordMapper.recordToRecordDto(sourceRecord);
         }
 
         HttpHeaders headers = new HttpHeaders();
@@ -265,6 +275,7 @@ public class RecordServiceImpl implements RecordService {
                         Record.class.getSimpleName(), requestUpdateStageDto.getRecordId().toString()
                 )
         );
+        validateRecordBelongsToCompany(record, realm);
         RecordStage recordStage = record.getRecordStage();
         recordStage.setStageId(requestUpdateStageDto.getStageId());
         record.setRecordStage(recordStage);
@@ -303,12 +314,13 @@ public class RecordServiceImpl implements RecordService {
     }
 
     @Override
-    public RecordDto updateRecordByRecordId(String recordId, String token, RecordDto updateRecordRequestDto) {
+    public RecordDto updateRecordByRecordId(String recordId, String token, RecordDto updateRecordRequestDto, String companyName) {
         Record recordEntity = recordRepository.findById(UUID.fromString(recordId)).orElseThrow(
                 () -> new ObjectNotFoundException(
                         "Record", recordId
                 )
         );
+        validateRecordBelongsToCompany(recordEntity, companyName);
         recordEntity.setName(updateRecordRequestDto.getName());
 
         if (updateRecordRequestDto.getCurrentStageId() != null) {
@@ -344,7 +356,7 @@ public class RecordServiceImpl implements RecordService {
 
     @Override
     @SuppressWarnings("unchecked")
-    public Object getRecordInElasticsearch(HttpServletRequest request) throws IOException {
+    public Object getRecordInElasticsearch(HttpServletRequest request, String companyName) throws IOException {
         List<String> permissions = SecurityContextHelper.getContextAuthorities();
         String userId = SecurityContextHelper.getContextUserId();
         if (!"POST".equalsIgnoreCase(request.getMethod())) {
@@ -368,6 +380,11 @@ public class RecordServiceImpl implements RecordService {
 
         mustList.add(deletedMatch);
 
+        // Always enforce the caller's own company, regardless of what the client sent in the query body,
+        // so a request cannot be crafted to read another company's records.
+        Map<String, Object> companyMatch = Map.of("match", Map.of("company_name", companyName));
+        mustList.add(companyMatch);
+
         if (!permissions.contains(PermissionType.READ_ALL.getPermission())) {
 
             // Create the new JSON object to add
@@ -383,5 +400,15 @@ public class RecordServiceImpl implements RecordService {
 
     public TypeDto findTypeById(UUID typeId, List<TypeDto> allType) {
         return allType.stream().filter(typeDto -> typeDto.getId().equals(typeId)).findFirst().orElse(null);
+    }
+
+    private void validateRecordBelongsToCompany(Record record, String companyName) {
+        validateRecordBelongsToCompany(record, companyName, "Record", record.getId().toString());
+    }
+
+    private void validateRecordBelongsToCompany(Record record, String companyName, String notFoundKey, String notFoundValue) {
+        if (!companyName.equals(record.getCompanyName())) {
+            throw new ObjectNotFoundException(notFoundKey, notFoundValue);
+        }
     }
 }
