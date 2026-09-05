@@ -1,5 +1,5 @@
 # Create a new image for running the application
-FROM maven:3.8.3-openjdk-17 AS build
+FROM maven:3.9-eclipse-temurin-17 AS build
 
 # Set the working directory in the container
 WORKDIR /app
@@ -11,7 +11,7 @@ COPY . .
 RUN mvn clean package -DskipTests
 
 # Use a lightweight Java base image - adjust the version as needed
-FROM openjdk:24-jdk-slim
+FROM eclipse-temurin:17-jre-jammy
 
 # Create a working directory for your app
 WORKDIR /app
