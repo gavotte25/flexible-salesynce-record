@@ -22,6 +22,7 @@ import org.salesync.record_service.dtos.ListRecordsRequestDto;
 import org.salesync.record_service.dtos.ListRecordsResponseDto;
 import org.salesync.record_service.dtos.MessageDto;
 import org.salesync.record_service.dtos.RecordDto;
+import org.salesync.record_service.dtos.RecordStageChangedEvent;
 import org.salesync.record_service.dtos.RecordTypePropertyDto;
 import org.salesync.record_service.dtos.RequestRecordDto;
 import org.salesync.record_service.dtos.RequestUpdateStageDto;
@@ -282,6 +283,7 @@ public class RecordServiceImpl implements RecordService {
 
         String userId = tokenService.extractClaim(token.split(" ")[1], claims -> claims.get("userId", String.class));
         rabbitMQProducer.sendMessage("record", MessageDto.builder().content("${" + userId + "} Updated " + record.getName() + " stage").title("Stage Updated").createdAt(new Date()).action("update").isRead(false).url("/" + realm + "/record/" + record.getId()).senderId(UUID.fromString(userId)).receiverId(record.getUserId()).build());
+        publishStageChangedEvent(record, realm, userId, token, requestUpdateStageDto.getStageId());
 
         return recordMapper.recordToRecordDto(recordRepository.save(record));
     }
@@ -344,8 +346,26 @@ public class RecordServiceImpl implements RecordService {
 
         String userId = tokenService.extractClaim(token.split(" ")[1], claims -> claims.get("userId", String.class));
         rabbitMQProducer.sendMessage("record", MessageDto.builder().content("${" + userId + "} Updated " + recordEntity.getName()).title("Record Updated").createdAt(new Date()).action("update").isRead(false).url("/record/" + recordEntity.getId()).senderId(UUID.fromString(userId)).receiverId(recordEntity.getUserId()).build());
+        if (updateRecordRequestDto.getCurrentStageId() != null) {
+            publishStageChangedEvent(recordEntity, companyName, userId, token, updateRecordRequestDto.getCurrentStageId());
+        }
 
         return recordMapper.recordToRecordDto(recordRepository.save(recordEntity));
+    }
+
+    private void publishStageChangedEvent(Record record, String companyName, String userId, String token, UUID stageId) {
+        UUID typeId = record.getRecordType() != null ? record.getRecordType().getTypeId() : null;
+        String preferredUsername = tokenService.extractClaim(token.split(" ")[1], claims -> claims.get("preferred_username", String.class));
+        rabbitMQProducer.sendMessage("record.stage.changed", RecordStageChangedEvent.builder()
+                .recordId(record.getId())
+                .recordName(record.getName())
+                .companyName(companyName)
+                .typeId(typeId)
+                .stageId(stageId)
+                .userId(userId)
+                .userName(preferredUsername != null ? preferredUsername : userId)
+                .changedAt(new Date())
+                .build());
     }
 
     @Override
