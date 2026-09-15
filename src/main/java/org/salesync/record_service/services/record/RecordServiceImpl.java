@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,6 +22,7 @@ import org.salesync.record_service.dtos.CreateRecordRequestDto;
 import org.salesync.record_service.dtos.ListRecordsRequestDto;
 import org.salesync.record_service.dtos.ListRecordsResponseDto;
 import org.salesync.record_service.dtos.MessageDto;
+import org.salesync.record_service.dtos.RecordChangedEvent;
 import org.salesync.record_service.dtos.RecordDto;
 import org.salesync.record_service.dtos.RecordStageChangedEvent;
 import org.salesync.record_service.dtos.RecordTypePropertyDto;
@@ -312,7 +314,9 @@ public class RecordServiceImpl implements RecordService {
         recordEntity.setRecordProperties(recordTypeProperties);
         recordEntity.setCompanyName(companyName);
 
-        return recordMapper.recordToRecordDto(recordRepository.save(recordEntity));
+        Record savedRecord = recordRepository.save(recordEntity);
+        publishRecordChangedEvent(savedRecord, companyName);
+        return recordMapper.recordToRecordDto(savedRecord);
     }
 
     @Override
@@ -350,7 +354,25 @@ public class RecordServiceImpl implements RecordService {
             publishStageChangedEvent(recordEntity, companyName, userId, token, updateRecordRequestDto.getCurrentStageId());
         }
 
-        return recordMapper.recordToRecordDto(recordRepository.save(recordEntity));
+        Record savedRecord = recordRepository.save(recordEntity);
+        publishRecordChangedEvent(savedRecord, companyName);
+        return recordMapper.recordToRecordDto(savedRecord);
+    }
+
+    private void publishRecordChangedEvent(Record record, String companyName) {
+        UUID typeId = record.getRecordType() != null ? record.getRecordType().getTypeId() : null;
+        Map<String, String> properties = record.getRecordProperties() == null ? Map.of()
+                : record.getRecordProperties().stream()
+                        .filter(property -> property != null && property.getPropertyName() != null)
+                        .collect(Collectors.toMap(RecordTypeProperty::getPropertyName, property -> property.getItemValue() == null ? "" : property.getItemValue(), (a, b) -> b));
+        rabbitMQProducer.sendMessage("record.changed", RecordChangedEvent.builder()
+                .recordId(record.getId())
+                .recordName(record.getName())
+                .companyName(companyName)
+                .typeId(typeId)
+                .properties(properties)
+                .changedAt(new Date())
+                .build());
     }
 
     private void publishStageChangedEvent(Record record, String companyName, String userId, String token, UUID stageId) {
